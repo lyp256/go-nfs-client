@@ -71,7 +71,7 @@ func (p *Portmapper) Getport(mapping Mapping) (int, error) {
 }
 
 func DialPortmapper(net, host string) (*Portmapper, error) {
-	client, err := DialTCP(net, fmt.Sprintf("%s:%d", host, PmapPort), false)
+	client, err := DialTCP(net, fmt.Sprintf("%s:%d", host, PmapPort))
 	if err != nil {
 		return nil, err
 	}

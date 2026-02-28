@@ -123,7 +123,14 @@ func (v *Target) FSInfo() (*FSInfo, error) {
 }
 
 func (v *Target) cleanupCache() {
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
 	for {
+		select {
+		case <-v.Client.Context().Done():
+			return
+		case <-ticker.C:
+		}
 		v.cacheM.Lock()
 		now := time.Now()
 		var cnt int
@@ -137,7 +144,7 @@ func (v *Target) cleanupCache() {
 			}
 		}
 		v.cacheM.Unlock()
-		time.Sleep(time.Second)
+		ticker.Reset(time.Second)
 	}
 }
 

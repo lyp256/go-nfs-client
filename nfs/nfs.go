@@ -5,7 +5,6 @@ package nfs
 import (
 	"fmt"
 	"os"
-	"os/user"
 	"time"
 
 	"github.com/lyp256/go-nfs-client/nfs/rpc"
@@ -267,10 +266,9 @@ func DialService(addr string, prog rpc.Mapping) (*rpc.Client, error) {
 }
 
 func DialServiceAtPort(addr string, port int) (*rpc.Client, error) {
-	usr, err := user.Current()
 	raddr := fmt.Sprintf("%s:%d", addr, port)
 	// Unless explicitly configured, the target will likely reject connections
 	// from non-privileged ports.
 	util.Debugf("Connecting to %s", raddr)
-	return rpc.DialTCP("tcp", raddr, err == nil && usr.Uid == "0")
+	return rpc.DialTCP("tcp", raddr)
 }
