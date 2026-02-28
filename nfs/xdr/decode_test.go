@@ -11,7 +11,7 @@ import (
 	"regexp"
 	"testing"
 
-	"github.com/willscott/go-nfs-client/nfs/util"
+	"github.com/lyp256/go-nfs-client/nfs/util"
 )
 
 func TestRead(t *testing.T) {

@@ -16,8 +16,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/willscott/go-nfs-client/nfs/util"
-	"github.com/willscott/go-nfs-client/nfs/xdr"
+	"github.com/lyp256/go-nfs-client/nfs/util"
+	"github.com/lyp256/go-nfs-client/nfs/xdr"
 )
 
 const (

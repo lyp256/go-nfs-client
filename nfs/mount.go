@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/willscott/go-nfs-client/nfs/rpc"
-	"github.com/willscott/go-nfs-client/nfs/xdr"
+	"github.com/lyp256/go-nfs-client/nfs/rpc"
+	"github.com/lyp256/go-nfs-client/nfs/xdr"
 )
 
 const (

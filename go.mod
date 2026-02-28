@@ -1,4 +1,4 @@
-module github.com/willscott/go-nfs-client
+module github.com/lyp256/go-nfs-client
 
 go 1.19
 
