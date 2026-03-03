@@ -157,6 +157,7 @@ func (c *Client) disconnect() {
 	for _, r := range c.replies {
 		close(r)
 	}
+	c.replies = make(map[uint32]chan io.ReadSeeker)
 }
 
 func (c *Client) Close() {
@@ -232,17 +233,17 @@ retry:
 		// padding
 		_, err = xdr.ReadUint32(res)
 		if err != nil {
-			panic(err.Error())
+			return nil, fmt.Errorf("rpc: failed to read padding: %w", err)
 		}
 
 		opaque_len, err := xdr.ReadUint32(res)
 		if err != nil {
-			panic(err.Error())
+			return nil, fmt.Errorf("rpc: failed to read opaque length: %w", err)
 		}
 
 		_, err = res.Seek(int64(opaque_len), io.SeekCurrent)
 		if err != nil {
-			panic(err.Error())
+			return nil, fmt.Errorf("rpc: failed to seek opaque data: %w", err)
 		}
 
 		acceptStatus, _ := xdr.ReadUint32(res)
@@ -275,14 +276,12 @@ retry:
 		rejectStatus, _ := xdr.ReadUint32(res)
 		switch rejectStatus {
 		case RpcMismatch:
-
+			return nil, fmt.Errorf("rpc: RPC_MISMATCH - RPC version mismatch")
 		default:
 			return nil, fmt.Errorf("rejectedStatus was not valid: %d", rejectStatus)
 		}
 
 	default:
-		return nil, fmt.Errorf("rejectedStatus was not valid: %d", status)
+		return nil, fmt.Errorf("message status was not valid: %d", status)
 	}
-
-	panic("unreachable")
 }

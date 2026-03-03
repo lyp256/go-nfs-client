@@ -1,15 +1,19 @@
 // Copyright © 2017 VMware, Inc. All Rights Reserved.
 // SPDX-License-Identifier: BSD-2-Clause
-//
 package rpc
 
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"io"
 	"net"
 	"time"
 )
+
+// MaxMessageSize is the maximum allowed message size to prevent
+// memory exhaustion attacks from malicious servers.
+const MaxMessageSize = 16 * 1024 * 1024 // 16MB max
 
 type tcpTransport struct {
 	r       io.Reader
@@ -25,7 +29,12 @@ func (t *tcpTransport) recv() (io.ReadSeeker, error) {
 		return nil, err
 	}
 
-	buf := make([]byte, hdr&0x7fffffff)
+	size := hdr & 0x7fffffff
+	if size > MaxMessageSize {
+		return nil, fmt.Errorf("message size %d exceeds maximum %d", size, MaxMessageSize)
+	}
+
+	buf := make([]byte, size)
 	if _, err := io.ReadFull(t.r, buf); err != nil {
 		return nil, err
 	}

@@ -40,6 +40,7 @@ const (
 	NFSProc3RmDir       = 13
 	NFSProc3Rename      = 14
 	NFSProc3ReadDirPlus = 17
+	NFSProc3FSStat      = 18
 	NFSProc3FSInfo      = 19
 	NFSProc3Commit      = 21
 
@@ -246,6 +247,20 @@ type FSInfo struct {
 	Size       uint64
 	TimeDelta  NFS3Time
 	Properties uint32
+}
+
+// FSStat contains filesystem statistics as returned by FSSTAT procedure.
+// See RFC 1813 Section 5.2.
+type FSStat struct {
+	Attr       PostOpAttr
+	TotalBytes uint64 // Total size in bytes
+	UsedBytes  uint64 // Used size in bytes
+	AvailBytes uint64 // Available size in bytes
+	TotalFiles uint64 // Total file slots
+	UsedFiles  uint64 // Used file slots
+	AvailFiles uint64 // Available file slots
+	InvarSec   uint32
+	InvarNsec  uint32
 }
 
 // Dial an RPC svc after getting the port from the portmapper

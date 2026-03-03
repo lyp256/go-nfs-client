@@ -132,6 +132,12 @@ func (m *Mount) Mount(dirpath string, auth rpc.Auth) (*Target, error) {
 		return nil, errors.New("MNT3ERR_NOTDIR")
 	case MNT3ErrNameTooLong:
 		return nil, errors.New("MNT3ERR_NAMETOOLONG")
+	case MNT3ErrInval:
+		return nil, errors.New("MNT3ERR_INVAL")
+	case MNT3ErrNotSupp:
+		return nil, errors.New("MNT3ERR_NOTSUPP")
+	case MNT3ErrServerFault:
+		return nil, errors.New("MNT3ERR_SERVERFAULT")
 	}
 	return nil, fmt.Errorf("unknown mount stat: %d", mountstat3)
 }

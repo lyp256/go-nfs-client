@@ -122,6 +122,38 @@ func (v *Target) FSInfo() (*FSInfo, error) {
 	return fsinfo, nil
 }
 
+// FSStat returns filesystem statistics including total, used, and available space.
+func (v *Target) FSStat() (*FSStat, error) {
+	type FSStatArgs struct {
+		rpc.Header
+		FsRoot []byte
+	}
+
+	res, err := v.call(&FSStatArgs{
+		Header: rpc.Header{
+			Rpcvers: 2,
+			Prog:    Nfs3Prog,
+			Vers:    Nfs3Vers,
+			Proc:    NFSProc3FSStat,
+			Cred:    v.auth,
+			Verf:    rpc.AuthNull,
+		},
+		FsRoot: v.fh,
+	})
+
+	if err != nil {
+		util.Debugf("fsstat: %s", err.Error())
+		return nil, err
+	}
+
+	fsstat := new(FSStat)
+	if err = xdr.Read(res, fsstat); err != nil {
+		return nil, err
+	}
+
+	return fsstat, nil
+}
+
 func (v *Target) cleanupCache() {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
@@ -144,7 +176,6 @@ func (v *Target) cleanupCache() {
 			}
 		}
 		v.cacheM.Unlock()
-		ticker.Reset(time.Second)
 	}
 }
 
@@ -187,7 +218,8 @@ func (v *Target) Lookup(p string, cached ...bool) (os.FileInfo, []byte, error) {
 	return fattr, fh, nil
 }
 
-// Lookup returns attributes and the file handle to a given dirent
+// lookup2 returns attributes and the file handle for a given path.
+// Unlike Lookup, it does not support caching and skips the root directory entry.
 func (v *Target) lookup2(p string) (*Fattr, []byte, error) {
 	var (
 		err   error
@@ -227,20 +259,37 @@ func (v *Target) parsefh(fh []byte) string {
 }
 
 func (v *Target) cachedLookup(fh []byte, name string) (*Fattr, []byte, error) {
+	ino := v.parsefh(fh)
+
+	// First check cache while holding lock
 	v.cacheM.Lock()
-	defer v.cacheM.Unlock()
-	if err := v.checkCachedDir(fh); err != nil {
+	if es, ok := v.cachedTree[ino]; ok && time.Since(es.expire) < 0 {
+		if e, ok := es.entries[name]; ok {
+			v.cacheM.Unlock()
+			return &e.Attr.Attr, e.Handle.FH, nil
+		}
+		v.cacheM.Unlock()
+		return nil, nil, os.ErrNotExist
+	}
+	v.cacheM.Unlock()
+
+	// Cache miss or expired - refresh without lock
+	if err := v.refreshDirCache(fh); err != nil {
 		return nil, nil, err
 	}
 
-	if e, ok := v.cachedTree[v.parsefh(fh)].entries[name]; ok {
-		return &e.Attr.Attr, e.Handle.FH, nil
-	} else {
-		return nil, nil, os.ErrNotExist
+	// Check again after refresh
+	v.cacheM.Lock()
+	defer v.cacheM.Unlock()
+	if es, ok := v.cachedTree[ino]; ok {
+		if e, ok := es.entries[name]; ok {
+			return &e.Attr.Attr, e.Handle.FH, nil
+		}
 	}
+	return nil, nil, os.ErrNotExist
 }
 
-func (v *Target) invalidateEntryCache(fh []byte, name string) {
+func (v *Target) invalidateEntryCache(fh []byte) {
 	ino := v.parsefh(fh)
 	v.cacheM.Lock()
 	// FIXME: refine
@@ -459,31 +508,48 @@ func (v *Target) ReadDirPlus(dir string) ([]*EntryPlus, error) {
 		return nil, err
 	}
 
+	ino := v.parsefh(fh)
+
+	// Check cache while holding lock
 	v.cacheM.Lock()
-	defer v.cacheM.Unlock()
-	if err = v.checkCachedDir(fh); err != nil {
+	if es, ok := v.cachedTree[ino]; ok && time.Since(es.expire) < 0 {
+		var result []*EntryPlus
+		for _, e := range es.entries {
+			if e.FileName == "." || e.FileName == ".." {
+				continue
+			}
+			result = append(result, e)
+		}
+		v.cacheM.Unlock()
+		return result, nil
+	}
+	v.cacheM.Unlock()
+
+	// Cache miss or expired - refresh without lock
+	if err = v.refreshDirCache(fh); err != nil {
 		return nil, err
 	}
 
-	var es []*EntryPlus
-	for _, e := range v.cachedTree[v.parsefh(fh)].entries {
-		if e.FileName == "." || e.FileName == ".." {
-			continue
+	// Return results after refresh
+	v.cacheM.Lock()
+	defer v.cacheM.Unlock()
+	var result []*EntryPlus
+	if es, ok := v.cachedTree[ino]; ok {
+		for _, e := range es.entries {
+			if e.FileName == "." || e.FileName == ".." {
+				continue
+			}
+			result = append(result, e)
 		}
-		es = append(es, e)
 	}
-	return es, nil
+	return result, nil
 }
 
-// protected by v.cacheM
-func (v *Target) checkCachedDir(fh []byte) error {
+// refreshDirCache refreshes the directory cache for the given filehandle.
+// This function performs network operations and should NOT be called while holding v.cacheM.
+func (v *Target) refreshDirCache(fh []byte) error {
 	ino := v.parsefh(fh)
-	es, ok := v.cachedTree[ino]
-	if ok && time.Since(es.expire) < 0 {
-		return nil
-	}
 
-	v.cacheM.Unlock()
 	var (
 		entries    []*EntryPlus
 		entriesMap map[string]*EntryPlus
@@ -512,15 +578,19 @@ func (v *Target) checkCachedDir(fh []byte) error {
 			break
 		}
 	}
-	v.cacheM.Lock()
+
 	if err != nil {
 		return err
 	}
 
-	es, ok = v.cachedTree[ino]
-	if ok && time.Since(es.expire) < 0 { // updated by others
+	// Update cache with lock
+	v.cacheM.Lock()
+	defer v.cacheM.Unlock()
+
+	// Check if another goroutine already updated the cache
+	es, ok := v.cachedTree[ino]
+	if ok && time.Since(es.expire) < 0 {
 		if !entriesMap["."].ModTime().After(es.entries["."].ModTime()) {
-			// es.expire = time.Now().Add(v.entryTimeout)
 			return nil
 		}
 	}
@@ -753,7 +823,7 @@ func (v *Target) Mkdir(path string, perm os.FileMode) ([]byte, error) {
 		util.Debugf("mkdir(%s) partial response: %+v", mkdirres)
 		return nil, err
 	}
-	v.invalidateEntryCache(fh, newDir)
+	v.invalidateEntryCache(fh)
 	util.Debugf("mkdir(%s): created successfully (0x%x)", path, fh)
 	return mkdirres.FH.FH, nil
 }
@@ -817,7 +887,7 @@ func (v *Target) Create(path string, perm os.FileMode) ([]byte, error) {
 	if err = xdr.Read(res, status); err != nil {
 		return nil, err
 	}
-	v.invalidateEntryCache(fh, newFile)
+	v.invalidateEntryCache(fh)
 	util.Debugf("create(%s): created successfully", path)
 	return status.FH.FH, nil
 }
@@ -859,7 +929,7 @@ func (v *Target) remove(fh []byte, deleteFile string) error {
 		util.Debugf("remove(%s): %s", deleteFile, err.Error())
 		return err
 	}
-	v.invalidateEntryCache(fh, deleteFile)
+	v.invalidateEntryCache(fh)
 	return nil
 }
 
@@ -900,7 +970,7 @@ func (v *Target) rmDir(fh []byte, name string) error {
 		util.Debugf("rmdir(%s): %s", name, err.Error())
 		return err
 	}
-	v.invalidateEntryCache(fh, name)
+	v.invalidateEntryCache(fh)
 	util.Debugf("rmdir(%s): deleted successfully", name)
 	return nil
 }
@@ -1031,8 +1101,8 @@ func (v *Target) rename(fhSrc []byte, src string, fhDst []byte, dst string) erro
 		util.Debugf("rename(%s -> %s): %s", src, dst, err.Error())
 		return err
 	}
-	v.invalidateEntryCache(fhSrc, src)
-	v.invalidateEntryCache(fhDst, dst)
+	v.invalidateEntryCache(fhSrc)
+	v.invalidateEntryCache(fhDst)
 	return nil
 }
 

@@ -1,6 +1,5 @@
 // Copyright © 2017 VMware, Inc. All Rights Reserved.
 // SPDX-License-Identifier: BSD-2-Clause
-//
 package nfs
 
 import "os"
@@ -72,6 +71,8 @@ func NFS3Error(errnum uint32) error {
 	case NFS3Ok:
 		return nil
 	case NFS3ErrPerm:
+		return os.ErrPermission
+	case NFS3ErrAcces:
 		return os.ErrPermission
 	case NFS3ErrExist:
 		return os.ErrExist

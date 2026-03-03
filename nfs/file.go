@@ -40,7 +40,6 @@ func (f *File) Readlink() (string, error) {
 
 	type ReadlinkRes struct {
 		Attr PostOpAttr
-		data []byte
 	}
 
 	r, err := f.call(&ReadlinkArgs{
@@ -65,11 +64,12 @@ func (f *File) Readlink() (string, error) {
 		return "", err
 	}
 
-	if readlinkres.data, err = xdr.ReadOpaque(r); err != nil {
+	data, err := xdr.ReadOpaque(r)
+	if err != nil {
 		return "", err
 	}
 
-	return string(readlinkres.data), err
+	return string(data), nil
 }
 
 func (f *File) Read(p []byte) (int, error) {
@@ -196,6 +196,10 @@ func (f *File) Write(p []byte) (int, error) {
 			util.Debugf("write(%x) did not write full data payload: sent: %d, written: %d", writeSize, writeres.Count)
 		}
 
+		if writeres.Count == 0 {
+			return int(written), errors.New("server returned zero bytes written")
+		}
+
 		f.curr += uint64(writeres.Count)
 		written += writeres.Count
 
@@ -252,7 +256,11 @@ func (f *File) Seek(offset int64, whence int) (int64, error) {
 		f.curr = uint64(offset)
 		return int64(f.curr), nil
 	case io.SeekCurrent:
-		f.curr = uint64(int64(f.curr) + offset)
+		newOffset := int64(f.curr) + offset
+		if newOffset < 0 {
+			return int64(f.curr), errors.New("offset cannot be negative")
+		}
+		f.curr = uint64(newOffset)
 		return int64(f.curr), nil
 	case io.SeekEnd:
 		return int64(f.curr), errors.New("SeekEnd is not supported yet")

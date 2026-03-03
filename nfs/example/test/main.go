@@ -7,7 +7,6 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"os"
 	"strings"
@@ -53,6 +52,16 @@ func main() {
 		log.Fatalf("ls: %s", err.Error())
 	}
 	baseDirCount := len(dirs)
+
+	// Test FSStat - get disk space usage
+	fsstat, err := v.FSStat()
+	if err != nil {
+		log.Fatalf("fsstat error: %v", err)
+	}
+	util.Infof("FSStat: TotalBytes=%d, UsedBytes=%d, AvailBytes=%d",
+		fsstat.TotalBytes, fsstat.UsedBytes, fsstat.AvailBytes)
+	util.Infof("FSStat: TotalFiles=%d, UsedFiles=%d, AvailFiles=%d",
+		fsstat.TotalFiles, fsstat.UsedFiles, fsstat.AvailFiles)
 
 	if _, err = v.Mkdir(dir, 0775); err != nil {
 		log.Fatalf("mkdir error: %v", err)
@@ -193,7 +202,7 @@ func testFileRW(v *nfs.Target, name string, filesize uint64) error {
 	h = sha256.New()
 	t = io.TeeReader(rdr, h)
 
-	_, err = ioutil.ReadAll(t)
+	_, err = io.ReadAll(t)
 	if err != nil {
 		util.Errorf("readall error: %v", err)
 		return err
