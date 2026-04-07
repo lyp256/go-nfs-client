@@ -160,9 +160,8 @@ func (v *Target) Lookup(p string, cached ...bool) (os.FileInfo, []byte, error) {
 	dirents := strings.Split(path.Clean(p), "/")
 	for _, dirent := range dirents {
 		// we're assuming the root is always the root of the mount
-		if dirent == "" {
-			util.Debugf("root -> 0x%x", fh)
-			dirent = "."
+		if dirent == "." || dirent == "" {
+			continue
 		}
 
 		if len(cached) > 0 && cached[0] {
@@ -176,6 +175,13 @@ func (v *Target) Lookup(p string, cached ...bool) (os.FileInfo, []byte, error) {
 
 		//util.Debugf("%s -> 0x%x", dirent, fh)
 		// TODO: resolve symlink
+	}
+
+	if fattr == nil {
+		fattr, err = v.GetAttr(v.fh)
+		if err != nil {
+			return nil, nil, err
+		}
 	}
 
 	return fattr, fh, nil
@@ -204,6 +210,13 @@ func (v *Target) lookup2(p string) (*Fattr, []byte, error) {
 		}
 
 		//util.Debugf("%s -> 0x%x", dirent, fh)
+	}
+
+	if fattr == nil {
+		fattr, err = v.GetAttr(v.fh)
+		if err != nil {
+			return nil, nil, err
+		}
 	}
 
 	return fattr, fh, nil
