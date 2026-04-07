@@ -1032,10 +1032,16 @@ func (v *Target) removeAll(deleteDirfh []byte) error {
 		// If directory, recurse, then nuke it.  It should be empty when we get
 		// back.
 		if entry.Attr.Attr.Type == NF3Dir {
-			if entry.Handle.IsSet {
-				if err = v.removeAll(entry.Handle.FH); err != nil {
+			fh := entry.Handle.FH
+			if !entry.Handle.IsSet {
+				_, fh, err = v.lookup(deleteDirfh, entry.FileName)
+				if err != nil {
 					return err
 				}
+			}
+
+			if err = v.removeAll(fh); err != nil {
+				return err
 			}
 
 			err = v.rmDir(deleteDirfh, entry.FileName)

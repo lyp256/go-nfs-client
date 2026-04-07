@@ -12,10 +12,10 @@ import (
 
 func main() {
 	util.DefaultLogger.SetDebug(true)
-	
+
 	host := "192.168.5.172"
 	target := "/nfs/test"
-	
+
 	mount, err := nfs.DialMount(host, time.Second*10)
 	if err != nil {
 		log.Fatalf("unable to dial MOUNT service: %v", err)

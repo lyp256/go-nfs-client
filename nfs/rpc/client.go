@@ -110,12 +110,13 @@ loop:
 		}
 		res, err := t.recv()
 		if err != nil {
-			util.Debugf("nfs rpc: recv got error: %s", err)
+			util.Debugf("rpc: recv error: %v", err)
 			c.disconnect()
 			continue
 		}
 		xid, err := xdr.ReadUint32(res)
 		if err != nil {
+			util.Debugf("rpc: failed to read xid: %v", err)
 			c.disconnect()
 			continue
 		}
@@ -124,7 +125,13 @@ loop:
 		r, ok := c.replies[xid]
 		c.Unlock()
 		if ok {
-			r <- res
+			// 使用 select 防止向已关闭或无监听的通道发送时阻塞或 panic
+			// 虽然使用了带缓冲通道，但增加安全性总没坏处
+			select {
+			case r <- res:
+			default:
+				util.Debugf("rpc: dropping response for xid %x (no listener)", xid)
+			}
 		} else {
 			util.Errorf("received unexpected response with xid: %x", xid)
 		}
@@ -154,9 +161,8 @@ func (c *Client) disconnect() {
 		c.tcpTransport.Close()
 		c.tcpTransport = nil
 	}
-	for _, r := range c.replies {
-		close(r)
-	}
+	// 并不主动关闭通道，让等待者通过超时或检查 c.tcpTransport == nil 来感知
+	// 这样可以避免 receive 协程在发送时发生 panic
 	c.replies = make(map[uint32]chan io.ReadSeeker)
 }
 
@@ -182,7 +188,7 @@ func (c *Client) Call(call interface{}) (io.ReadSeeker, error) {
 retry:
 	retries++
 	if retries > 100 {
-		return nil, errors.New("disconnected")
+		return nil, errors.New("rpc: max retries reached")
 	}
 
 	c.Lock()
@@ -196,7 +202,8 @@ retry:
 		c.disconnect()
 		goto retry
 	}
-	reply := make(chan io.ReadSeeker)
+	// 使用带缓冲通道 (size 1)，这样 receive 可以在没有接收者的情况下完成发送而不阻塞
+	reply := make(chan io.ReadSeeker, 1)
 	c.replies[msg.Xid] = reply
 	c.Unlock()
 
@@ -204,6 +211,11 @@ retry:
 	select {
 	case res = <-reply:
 	case <-time.After(DefaultReadTimeout):
+		// 超时处理：在锁内删除回复映射，防止 receive 在删除后还尝试获取并发送
+		c.Lock()
+		delete(c.replies, msg.Xid)
+		c.Unlock()
+		goto retry
 	}
 
 	c.Lock()

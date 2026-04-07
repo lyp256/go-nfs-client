@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"sync"
 
 	"github.com/lyp256/go-nfs-client/nfs/rpc"
 	"github.com/lyp256/go-nfs-client/nfs/util"
@@ -23,6 +24,7 @@ var (
 type File struct {
 	*Target
 
+	m sync.Mutex
 	// current position
 	curr   uint64
 	fsinfo *FSInfo
@@ -73,8 +75,11 @@ func (f *File) Readlink() (string, error) {
 }
 
 func (f *File) Read(p []byte) (int, error) {
+	f.m.Lock()
+	defer f.m.Unlock()
+
 	n, err := f.readAt(p, int64(f.curr))
-	if err == nil {
+	if err == nil || (err == io.EOF && n > 0) {
 		f.curr += uint64(n)
 	}
 	return n, err
@@ -101,45 +106,61 @@ func (f *File) readAt(p []byte, off int64) (n int, err error) {
 		}
 	}
 
-	readSize := min(f.fsinfo.RTMax, uint32(len(p)))
-	util.Debugf("read(%x) len=%d offset=%d", f.fh, readSize, off)
+	totalRead := 0
+	for totalRead < len(p) {
+		readSize := min(f.fsinfo.RTMax, uint32(len(p)-totalRead))
+		util.Debugf("read(%x) len=%d offset=%d", f.fh, readSize, off+int64(totalRead))
 
-	r, err := f.call(&ReadArgs{
-		Header: rpc.Header{
-			Rpcvers: 2,
-			Prog:    Nfs3Prog,
-			Vers:    Nfs3Vers,
-			Proc:    NFSProc3Read,
-			Cred:    f.auth,
-			Verf:    rpc.AuthNull,
-		},
-		FH:     f.fh,
-		Offset: uint64(off),
-		Count:  readSize,
-	})
+		r, err := f.call(&ReadArgs{
+			Header: rpc.Header{
+				Rpcvers: 2,
+				Prog:    Nfs3Prog,
+				Vers:    Nfs3Vers,
+				Proc:    NFSProc3Read,
+				Cred:    f.auth,
+				Verf:    rpc.AuthNull,
+			},
+			FH:     f.fh,
+			Offset: uint64(off + int64(totalRead)),
+			Count:  readSize,
+		})
 
-	if err != nil {
-		util.Debugf("read(%x): %s", f.fh, err.Error())
-		return 0, err
+		if err != nil {
+			util.Debugf("read(%x): %s", f.fh, err.Error())
+			return totalRead, err
+		}
+
+		readres := &ReadRes{}
+		if err = xdr.Read(r, readres); err != nil {
+			return totalRead, err
+		}
+
+		if readres.Data.Length == 0 {
+			if readres.EOF != 0 {
+				return totalRead, io.EOF
+			}
+			return totalRead, nil
+		}
+
+		currRead, err := io.ReadFull(r, p[totalRead:totalRead+int(readres.Data.Length)])
+		if err != nil && err != io.ErrUnexpectedEOF {
+			return totalRead + currRead, err
+		}
+
+		totalRead += currRead
+
+		if readres.EOF != 0 {
+			return totalRead, io.EOF
+		}
 	}
 
-	readres := &ReadRes{}
-	if err = xdr.Read(r, readres); err != nil {
-		return 0, err
-	}
-
-	n, err = r.Read(p[:readres.Data.Length])
-	if err != nil {
-		return n, err
-	}
-
-	if readres.EOF != 0 {
-		err = io.EOF
-	}
-	return n, err
+	return totalRead, nil
 }
 
 func (f *File) Write(p []byte) (int, error) {
+	f.m.Lock()
+	defer f.m.Unlock()
+
 	type WriteArgs struct {
 		rpc.Header
 		FH     []byte
@@ -241,13 +262,13 @@ func (f *File) Close() error {
 // Seek sets the offset for the next Read or Write to offset, interpreted according to whence.
 // This method implements Seeker interface.
 func (f *File) Seek(offset int64, whence int) (int64, error) {
+	f.m.Lock()
+	defer f.m.Unlock()
 
 	// It would be nice to try to validate the offset here.
 	// However, as we're working with the shared file system, the file
 	// size might even change between NFSPROC3_GETATTR call and
 	// Seek() call, so don't even try to validate it.
-	// The only disadvantage of not knowing the current file size is that
-	// we cannot do io.SeekEnd seeks.
 	switch whence {
 	case io.SeekStart:
 		if offset < 0 {
@@ -263,7 +284,16 @@ func (f *File) Seek(offset int64, whence int) (int64, error) {
 		f.curr = uint64(newOffset)
 		return int64(f.curr), nil
 	case io.SeekEnd:
-		return int64(f.curr), errors.New("SeekEnd is not supported yet")
+		attr, err := f.GetAttr(f.fh)
+		if err != nil {
+			return int64(f.curr), err
+		}
+		newOffset := int64(attr.Filesize) + offset
+		if newOffset < 0 {
+			return int64(f.curr), errors.New("offset cannot be negative")
+		}
+		f.curr = uint64(newOffset)
+		return int64(f.curr), nil
 	default:
 		// This indicates serious programming error
 		return int64(f.curr), errors.New("Invalid whence")
