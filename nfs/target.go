@@ -833,6 +833,45 @@ func (v *Target) Mkdir(path string, perm os.FileMode) ([]byte, error) {
 	return mkdirres.FH.FH, nil
 }
 
+// MkdirAll creates a directory and all parent directories as needed.
+func (v *Target) MkdirAll(path string, perm os.FileMode) ([]byte, error) {
+	path = filepath.Clean(path)
+
+	// Check if path exists and is a directory.
+	fi, fh, err := v.Lookup(path)
+	if err == nil {
+		if fi.IsDir() {
+			return fh, nil
+		}
+		return nil, os.ErrExist
+	}
+
+	// If the parent directory does not exist, create it.
+	dir, _ := filepath.Split(path)
+	if dir != "" && dir != "/" && dir != "." {
+		_, err = v.MkdirAll(dir, perm)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// Parent now exists; create the directory.
+	fh, err = v.Mkdir(path, perm)
+	if err != nil {
+		if os.IsExist(err) {
+			// Between the Lookup and the Mkdir, someone else created it.
+			// Check if it's a directory.
+			fi, fh, err := v.Lookup(path)
+			if err == nil && fi.IsDir() {
+				return fh, nil
+			}
+		}
+		return nil, err
+	}
+
+	return fh, nil
+}
+
 // Create a file with name the given mode
 func (v *Target) Create(path string, perm os.FileMode) ([]byte, error) {
 	path = filepath.Clean(path)
