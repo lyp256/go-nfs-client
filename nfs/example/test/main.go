@@ -58,10 +58,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("fsstat error: %v", err)
 	}
-	util.Infof("FSStat: TotalBytes=%d, UsedBytes=%d, AvailBytes=%d",
-		fsstat.TotalBytes, fsstat.UsedBytes, fsstat.AvailBytes)
-	util.Infof("FSStat: TotalFiles=%d, UsedFiles=%d, AvailFiles=%d",
-		fsstat.TotalFiles, fsstat.UsedFiles, fsstat.AvailFiles)
+	util.Infof("FSStat: TotalBytes=%d, FreeBytes=%d, AvailBytes=%d",
+		fsstat.TotalBytes, fsstat.FreeBytes, fsstat.AvailBytes)
+	util.Infof("FSStat: TotalFiles=%d, FreeFiles=%d, AvailFiles=%d",
+		fsstat.TotalFiles, fsstat.FreeFiles, fsstat.AvailFiles)
 
 	if _, err = v.Mkdir(dir, 0775); err != nil {
 		log.Fatalf("mkdir error: %v", err)

@@ -253,14 +253,13 @@ type FSInfo struct {
 // See RFC 1813 Section 5.2.
 type FSStat struct {
 	Attr       PostOpAttr
-	TotalBytes uint64 // Total size in bytes
-	UsedBytes  uint64 // Used size in bytes
-	AvailBytes uint64 // Available size in bytes
-	TotalFiles uint64 // Total file slots
-	UsedFiles  uint64 // Used file slots
-	AvailFiles uint64 // Available file slots
-	InvarSec   uint32
-	InvarNsec  uint32
+	TotalBytes uint64 // Total bytes (tbytes)
+	FreeBytes  uint64 // Free bytes (fbytes) - 空闲字节数
+	AvailBytes uint64 // Available bytes (abytes) - 可用字节数(考虑配额等)
+	TotalFiles uint64 // Total file slots (tfiles)
+	FreeFiles  uint64 // Free file slots (ffiles) - 空闲文件槽数
+	AvailFiles uint64 // Available file slots (afiles) - 可用文件槽数
+	InvarSec   uint32 // Invariance period in seconds
 }
 
 // Dial an RPC svc after getting the port from the portmapper
