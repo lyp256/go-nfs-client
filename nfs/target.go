@@ -769,9 +769,14 @@ func (v *Target) readDirPlus(fh []byte) ([]*EntryPlus, error) {
 	return entries, nil
 }
 
-// Creates a directory of the given name and returns its handle
+// Mkdir Creates a directory of the given name and returns its handle
 func (v *Target) Mkdir(path string, perm os.FileMode) ([]byte, error) {
+	path = filepath.Clean(path)
 	dir, newDir := filepath.Split(path)
+	if newDir == "" || newDir == "/" || newDir == "." {
+		return nil, nil
+	}
+
 	_, fh, err := v.Lookup(dir)
 	if err != nil {
 		return nil, err
@@ -830,7 +835,12 @@ func (v *Target) Mkdir(path string, perm os.FileMode) ([]byte, error) {
 
 // Create a file with name the given mode
 func (v *Target) Create(path string, perm os.FileMode) ([]byte, error) {
+	path = filepath.Clean(path)
 	dir, newFile := filepath.Split(path)
+	if newFile == "" || newFile == "/" || newFile == "." {
+		return nil, os.ErrInvalid
+	}
+
 	_, fh, err := v.Lookup(dir)
 	if err != nil {
 		return nil, err
@@ -894,7 +904,12 @@ func (v *Target) Create(path string, perm os.FileMode) ([]byte, error) {
 
 // Remove a file
 func (v *Target) Remove(path string) error {
+	path = filepath.Clean(path)
 	parentDir, deleteFile := filepath.Split(path)
+	if deleteFile == "" || deleteFile == "/" || deleteFile == "." {
+		return os.ErrInvalid
+	}
+
 	_, fh, err := v.Lookup(parentDir)
 	if err != nil {
 		return err
@@ -935,7 +950,12 @@ func (v *Target) remove(fh []byte, deleteFile string) error {
 
 // RmDir removes a non-empty directory
 func (v *Target) RmDir(path string) error {
+	path = filepath.Clean(path)
 	dir, deletedir := filepath.Split(path)
+	if deletedir == "" || deletedir == "/" || deletedir == "." {
+		return os.ErrInvalid
+	}
+
 	_, fh, err := v.Lookup(dir)
 	if err != nil {
 		return err
@@ -1062,12 +1082,24 @@ func (v *Target) removeAll(deleteDirfh []byte) error {
 
 // Rename a file or directory
 func (v *Target) Rename(from, to string) error {
+	from = filepath.Clean(from)
+	to = filepath.Clean(to)
+
 	parentSrc, src := filepath.Split(from)
+	if src == "" || src == "/" || src == "." {
+		return os.ErrInvalid
+	}
+
 	_, fhSrc, err := v.Lookup(parentSrc)
 	if err != nil {
 		return err
 	}
+
 	parentDst, dst := filepath.Split(to)
+	if dst == "" || dst == "/" || dst == "." {
+		return os.ErrInvalid
+	}
+
 	_, fhDst, err := v.Lookup(parentDst)
 	if err != nil {
 		return err
@@ -1114,13 +1146,18 @@ func (v *Target) rename(fhSrc []byte, src string, fhDst []byte, dst string) erro
 
 // Symlink creates a symbolic link refer to src
 func (v *Target) Symlink(src, dst string) error {
-	parentDst, dst := filepath.Split(dst)
+	dst = filepath.Clean(dst)
+	parentDst, dstName := filepath.Split(dst)
+	if dstName == "" || dstName == "/" || dstName == "." {
+		return os.ErrInvalid
+	}
+
 	_, fhDst, err := v.Lookup(parentDst)
 	if err != nil {
 		return err
 	}
 
-	return v.symlink(src, fhDst, dst)
+	return v.symlink(src, fhDst, dstName)
 }
 
 func (v *Target) symlink(srcPath string, fhDst []byte, dst string) error {

@@ -101,7 +101,7 @@ type SetSize struct {
 // DONT_CHANGE        = 0
 // SET_TO_SERVER_TIME = 1
 // SET_TO_CLIENT_TIME = 2
-type TimeHow int
+type TimeHow uint32
 
 const (
 	DontChange TimeHow = iota
@@ -115,7 +115,7 @@ type SetTime struct {
 }
 
 type Sattrguard3 struct {
-	Check int      `xdr:"union"`
+	Check uint32   `xdr:"union"`
 	Time  NFS3Time //SetToClientTime
 }
 
