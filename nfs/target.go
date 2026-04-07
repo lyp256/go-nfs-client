@@ -154,6 +154,11 @@ func (v *Target) FSStat() (*FSStat, error) {
 	return fsstat, nil
 }
 
+// Stat returns a FileInfo describing the named file.
+func (v *Target) Stat(path string) (os.FileInfo, error) {
+	return v.Getattr(path)
+}
+
 func (v *Target) cleanupCache() {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
@@ -396,56 +401,22 @@ func (v *Target) access(fh []byte, path string, access uint32) (*Fattr, uint32, 
 	return &accessres.Attr.Attr, accessres.Access, nil
 }
 
-// Getattr file
+// Getattr retrieves the attributes for a file given its path.
 func (v *Target) Getattr(path string) (*Fattr, error) {
-
 	_, fh, err := v.Lookup(path)
 	if err != nil {
 		return nil, err
 	}
 
-	attr, err := v.getattr(fh, path)
-
-	return attr, err
-}
-
-func (v *Target) getattr(fh []byte, path string) (*Fattr, error) {
-
-	type Getattr3Args struct {
-		rpc.Header
-		FH []byte
-	}
-
-	type GetattrOk struct {
-		Attr Fattr
-	}
-
-	res, err := v.call(&Getattr3Args{Header: rpc.Header{
-		Rpcvers: 2,
-		Prog:    Nfs3Prog,
-		Vers:    Nfs3Vers,
-		Proc:    NFSProc3GetAttr,
-		Cred:    v.auth,
-		Verf:    rpc.AuthNull,
-	},
-		FH: fh})
-
+	// Delegate to the file handle based GetAttr
+	attr, err := v.GetAttr(fh)
 	if err != nil {
 		util.Debugf("getattr(%s): %s", path, err.Error())
 		return nil, err
 	}
+	util.Debugf("getattr(%s): attr: %+v", path, attr)
 
-	getattrres := new(GetattrOk)
-
-	if err := xdr.Read(res, getattrres); err != nil {
-		util.Errorf("getattr(%s) failed to parse return: %s", path, err)
-		util.Debugf("getattr partial decode: %+v", *getattrres)
-		return nil, err
-	}
-
-	util.Debugf("getattr(%s): attr: %+v", path, getattrres.Attr)
-
-	return &getattrres.Attr, nil
+	return attr, err
 }
 
 // Setattr set file attr
